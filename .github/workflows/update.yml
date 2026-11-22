@@ -1,0 +1,123 @@
+name: Check for Updates
+
+on:
+  schedule:
+    - cron: '37 * * * *'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Specific version to update to (optional)'
+        required: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: antigravity-cli-update
+  cancel-in-progress: false
+
+jobs:
+  check-update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check for new version
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          CURRENT_VERSION=$(sed -n 's/^[[:space:]]*version = "\([^"]*\)";/\1/p' package.nix | head -1)
+          echo "Current version: $CURRENT_VERSION"
+
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            LATEST_VERSION="${{ github.event.inputs.version }}"
+            LATEST_VERSION="${LATEST_VERSION#v}"
+          else
+            LATEST_VERSION=$(gh release view --repo google-antigravity/antigravity-cli --json tagName -q '.tagName' | sed 's/^v//' || echo "")
+          fi
+
+          if [ -z "$LATEST_VERSION" ]; then
+            echo "Could not fetch latest version"
+            exit 0
+          fi
+
+          echo "Latest version: $LATEST_VERSION"
+
+          if [ "$CURRENT_VERSION" != "$LATEST_VERSION" ]; then
+            {
+              echo "new_version=$LATEST_VERSION"
+              echo "current_version=$CURRENT_VERSION"
+              echo "update_needed=true"
+            } >> "$GITHUB_OUTPUT"
+          else
+            echo "update_needed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Update version
+        if: steps.check.outputs.update_needed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./scripts/update.sh --version "${{ steps.check.outputs.new_version }}"
+
+      - name: Check update token
+        if: steps.check.outputs.update_needed == 'true'
+        env:
+          UPDATE_TOKEN: ${{ secrets.UPDATE_TOKEN || secrets.AGY_UPDATE_TOKEN }}
+        run: |
+          if [ -z "$UPDATE_TOKEN" ]; then
+            echo "Missing UPDATE_TOKEN secret for opening pull requests and enabling auto-merge." >&2
+            exit 1
+          fi
+
+      - name: Create Pull Request
+        if: steps.check.outputs.update_needed == 'true'
+        id: create-pr
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.UPDATE_TOKEN || secrets.AGY_UPDATE_TOKEN }}
+          commit-message: "chore: update antigravity-cli to ${{ steps.check.outputs.new_version }}"
+          signoff: true
+          title: "chore: update antigravity-cli to ${{ steps.check.outputs.new_version }}"
+          body: |
+            Update `antigravity-cli` from `${{ steps.check.outputs.current_version }}` to `${{ steps.check.outputs.new_version }}`.
+
+            This refreshes `version` and the four platform archive hashes in `package.nix`, and updates `flake.lock`. CI builds and verifies the `agy` binary on Linux (`x86_64-linux`, `aarch64-linux`) and macOS (`aarch64-darwin`) before auto-merge completes.
+          branch: update-antigravity-cli-${{ steps.check.outputs.new_version }}
+          delete-branch: true
+
+      - name: Enable Auto-Merge
+        if: steps.check.outputs.update_needed == 'true' && steps.create-pr.outputs.pull-request-number
+        env:
+          GH_TOKEN: ${{ secrets.UPDATE_TOKEN || secrets.AGY_UPDATE_TOKEN }}
+        run: |
+          gh pr merge "${{ steps.create-pr.outputs.pull-request-number }}" --repo "$GITHUB_REPOSITORY" --auto --squash --delete-branch
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## Update Summary"
+            echo ""
+
+            if [ "${{ steps.check.outputs.update_needed }}" = "true" ]; then
+              echo "- Current version: ${{ steps.check.outputs.current_version }}"
+              echo "- Latest version: ${{ steps.check.outputs.new_version }}"
+              echo ""
+              echo "Pull request created with auto-merge enabled."
+            else
+              CURRENT_VERSION=$(sed -n 's/^[[:space:]]*version = "\([^"]*\)";/\1/p' package.nix | head -1)
+              echo "- Current version: $CURRENT_VERSION"
+              echo ""
+              echo "Already up to date."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
