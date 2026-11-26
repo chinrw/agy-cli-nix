@@ -6,7 +6,7 @@
   versionCheckHook,
 }:
 let
-  version = "1.5.17";
+  version = "1.5.18";
 
   platformMap = {
     x86_64-linux = "linux_x64";
@@ -16,10 +16,10 @@ let
   };
 
   hashes = {
-    x86_64-linux = "sha256-YwS09ZKul+WSMc+xs2XuKcFVdQyaiB8MyO/l9SgQd88=";
-    aarch64-linux = "sha256-1tK4hJPm4ChU2keLIVzR3Zj9jPmFtr43gp2srepP/Ac=";
-    x86_64-darwin = "sha256-WMyabBElbeNIGT20ko/nIS0Uqqlp/xe4ufysIpZXmvw=";
-    aarch64-darwin = "sha256-lNTEdVye264/66j308eydk5rI5Mm77BHeyhAdjXJ52Q=";
+    x86_64-linux = "sha256-pJYHI+2c9bWscu1UHbjfTWJ0F5UmHrk6RoEAbMsj1a0=";
+    aarch64-linux = "sha256-l3mauskboLKbd1mLYvkDuGZGHaF2gCY6GC/vLLeWqw0=";
+    x86_64-darwin = "sha256-ET4FjfjD5IjJD2Trsdvfd2PKAa9wJ+z9c64YnzxTA2Y=";
+    aarch64-darwin = "sha256-8VT9voGIXDZWW3RhWp72x8kvucK8KaywowC8WZBpGHE=";
   };
 
   system = stdenvNoCC.hostPlatform.system;
